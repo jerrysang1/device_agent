@@ -31,6 +31,89 @@
 
 ---
 
+## 2.5 对话全流程示意图（文件 × 函数）
+
+```mermaid
+flowchart TB
+  subgraph FE [前端 device-service-frontend/App.vue]
+    UI1[sendTextMessage / sendPayload]
+    UI2[appendBotMessages 渲染]
+  end
+
+  subgraph API [agent_gateway/api]
+    R[routers.chat]
+    S[schemas.ChatRequest / ChatResponse]
+  end
+
+  subgraph SVC [service]
+    D[dialogue_service.chat]
+    REPO[state_repository load/save]
+  end
+
+  subgraph ENG [engine]
+    H[stub_brain.handle_message]
+    FE2[flow_executor.handle]
+    ADV[_advance / _handle_confirm / _fill_slot]
+  end
+
+  subgraph TOOLS [task/tools.py]
+    TR[ToolRegistry.call]
+    OWN[_ensure_device_owned]
+  end
+
+  subgraph MID [中台 :18082]
+    MW[/devices/*/warranty]
+  end
+
+  UI1 --> R
+  R --> S
+  R --> D
+  D --> REPO
+  D --> H
+  H --> FE2
+  FE2 --> ADV
+  ADV --> TR
+  TR --> OWN
+  TR --> MW
+  D --> R
+  R --> UI2
+```
+
+### 函数职责地图（谁管什么）
+
+| 文件 | 函数 | 职责 |
+|---|---|---|
+| `api/routers.py` | `chat()` | HTTP 入口，校验 body，调 service，回 ChatResponse |
+| `api/schemas.py` | `ChatRequest/ChatResponse` | 出入参协议，不写业务 |
+| `service/dialogue_service.py` | `chat()` | **事务边界**：load state → process → save |
+| `service/dialogue_service.py` | `_load/_save` | 仓储读写 DialogueState |
+| `engine/stub_brain.py` | `handle_message` | 分流：流程优先，RAG/能力说明兜底 |
+| `engine/flow_executor.py` | `handle` | 取消 / 续任务 / 开新流程 / 插话 |
+| `engine/flow_executor.py` | `_continue_task` | 确认步、收槽步续跑 |
+| `engine/flow_executor.py` | `_handle_confirm` | 是的→推进；取消；闲聊澄清 |
+| `engine/flow_executor.py` | `_fill_slot` | 解析槽值并写 TaskContext.slots |
+| `engine/flow_executor.py` | `_advance` | 状态机：ask/confirm/tool/reply 到 end |
+| `engine/flow_executor.py` | `_run_tool` | 渲染 params、注入 customer_id、调工具 |
+| `engine/flow_executor.py` | `_detect_flow_id` | 关键词 → flow_id（意图） |
+| `engine/flow_executor.py` | `_is_confirm/_is_cancel` | 口语确认/取消判断 |
+| `task/tools.py` | `ToolRegistry.call` | action 白名单分发 |
+| `task/tools.py` | `_check_warranty` 等 | 固定 HTTP + 字段归一 |
+| `task/tools.py` | `_ensure_device_owned` | 设备归属预检 |
+| `task/models.py` | `load_catalog/validate_flow` | YAML→对象 + 启动校验 |
+| `domain/state.py` | `DialogueState.*` | task / paused_tasks 生命周期 |
+| `domain/contexts.py` | `TaskContext` | flow_id + step_id + slots |
+| `domain/messages.py` | `MessageType/Message` | 消息类型与序列化 |
+
+### 类型判断在哪
+
+| 判断什么 | 函数 | 文件 |
+|---|---|---|
+| text / object / divider | `MessageType.from_value` | `domain/messages.py` |
+| 用户意图（保修/转人工） | `_detect_flow_id` | `engine/flow_executor.py` |
+| 同意 / 放弃 | `_is_confirm` / `_is_cancel` | `engine/flow_executor.py` |
+
+---
+
 ## 3. 一轮输入的决策树
 
 ```mermaid

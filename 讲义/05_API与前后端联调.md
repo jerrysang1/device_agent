@@ -75,6 +75,50 @@ class ChatRequest(BaseModel):
     # message_id：P1 再加（幂等 / 追溯），见 §7
 ```
 
+### 4.3 前端发送后完整链路
+
+```mermaid
+sequenceDiagram
+  participant U as 用户/浏览器
+  participant V as App.vue
+  participant A as routers.chat
+  participant D as dialogue_service.chat
+  participant S as stub_brain.handle_message
+  participant F as flow_executor.handle
+  participant T as tools.ToolRegistry
+  participant M as 中台
+  U->>V: 输入「帮我查保修」
+  V->>A: POST /api/chat
+  A->>D: chat(sender_id, text)
+  D->>D: _load(sender_id)
+  D->>S: handle_message(..., state)
+  S->>F: executor.handle(state, text)
+  F->>F: 开 check_warranty / 收槽
+  F-->>S: ProcessResult
+  S-->>D: ProcessResult
+  D->>D: _append_messages + _save
+  D-->>A: {messages, task_status}
+  A-->>V: ChatResponse
+  V->>U: appendBotMessages 渲染
+```
+
+第二轮「DEV-2026-0001」时：`_fill_slot` → `_run_tool` → `T.call(check_warranty)` → `M GET /devices/.../warranty`。
+
+---
+
+### 4.4 每层文件速查
+
+```text
+App.vue                    sendTextMessage / sendPayload / appendBotMessages
+api/routers.py             chat / history / health
+api/schemas.py             ChatRequest / ChatResponse
+service/dialogue_service   chat（load→process→save）
+engine/stub_brain          handle_message（分流）
+engine/flow_executor       handle / _advance（状态机）
+task/tools.py              ToolRegistry.call（HTTP）
+domain/state.py            DialogueState
+```
+
 ### 4.2 响应
 
 ```json
