@@ -1,0 +1,97 @@
+# 设备售后协同智能体 · 启动说明（唯一权威入口）
+# 子目录若有启动说明，一律以本文件为准。
+
+## 目录事实（请按真实路径操作）
+
+```text
+device_agent\                          仓库根（Python 统一环境 .venv 在这里）
+├── device-service-backend\            业务中台（FastAPI，端口 18082）
+├── mysql\initdb\                      MySQL 初始化 SQL
+├── atgui_agent\
+│   ├── agent_gateway\                 Agent 网关包（下划线，端口 8100）
+│   ├── device-service-frontend\       Vue 工作台（端口 5173）
+│   ├── flow_config\                   YAML 流程定义
+│   ├── .env                           统一配置（勿提交 Git）
+│   └── docker-compose.yml             仅 MySQL + 中台（不含 Agent）
+└── pyproject.toml                     唯一依赖清单
+```
+
+## 0. 依赖环境（一次即可）
+
+```powershell
+cd F:\AAA求职相关\device_agent
+uv sync --python 3.12
+```
+
+## 1. 启动 MySQL + 中台（Compose 方式，推荐）
+
+```powershell
+cd F:\AAA求职相关\device_agent\atgui_agent
+docker compose up --build
+```
+
+验证：
+
+```powershell
+Invoke-RestMethod 'http://127.0.0.1:18082/health'
+```
+
+> Compose 只包含 MySQL 与中台，**不会**启动聊天 Agent。
+
+## 1b. 或：本地进程方式启动中台（需 MySQL 已就绪）
+
+```powershell
+cd F:\AAA求职相关\device_agent
+.venv\Scripts\python.exe -m uvicorn app.app:app --app-dir device-service-backend --reload --port 18082
+```
+
+## 2. 启动 Agent 网关（聊天闭环）
+
+```powershell
+cd F:\AAA求职相关\device_agent
+.venv\Scripts\python.exe -m uvicorn agent_gateway.api.app:app --reload --port 8100
+```
+
+验证：
+
+```powershell
+Invoke-RestMethod 'http://127.0.0.1:8100/health'
+```
+
+> 当前能力边界见 `atgui_agent/README.md` 功能矩阵；若 README 标注「聊天 Agent 尚未实现」，则本命令会失败，属预期。
+
+## 3. 启动前端工作台
+
+```powershell
+cd F:\AAA求职相关\device_agent\atgui_agent\device-service-frontend
+npm install
+npm run dev
+```
+
+- 前端：http://127.0.0.1:5173
+- 中台 API 文档：http://127.0.0.1:18082/docs
+- 演示账号：u1001 / u1002 / u1003（合成数据，非真实用户）
+
+代理目标默认 `127.0.0.1`；如需改地址，在 `device-service-frontend` 下建 `.env.local`：
+
+```text
+VITE_DEVICE_API_BASE=http://127.0.0.1:18082
+VITE_AGENT_API_BASE=http://127.0.0.1:8100
+```
+
+## 4. 可选：手册 RAG
+
+RAG 项目位于 `E:\AAA message get\shopkeeper_brain`（独立仓库）。
+不可用时中台/Agent 必须显式降级（stub / not_configured），不得伪装成真实手册引用。
+
+## 5. 测试
+
+```powershell
+cd F:\AAA求职相关\device_agent
+uv run pytest -q
+```
+
+## 6. 配置
+
+- 统一配置：`atgui_agent/.env`（请复制 `atgui_agent/.env.example` 后填写）
+- **不要**把 `.env` 或任何 API Key 提交/截图到文档

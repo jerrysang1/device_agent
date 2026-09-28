@@ -1,0 +1,51 @@
+# ============================================================
+# 设备售后协同智能体 · agent-gateway 依赖清单（大致版）
+# 安装：pip install -r requirements.txt
+# Python：3.11+
+# ============================================================
+
+# ---------- Web 服务 ----------
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.9          # 预留文件上传（日志/截图）
+
+# ---------- 数据校验与配置 ----------
+pydantic>=2.9.0
+pydantic-settings>=2.6.0
+python-dotenv>=1.0.0
+
+# ---------- LLM 编排（OpenAI 兼容协议 / 通义千问等）----------
+langchain>=0.3.0
+langchain-openai>=0.2.0
+langchain-community>=0.3.0       # 可选：工具/加载器
+openai>=1.54.0                   # 与 langchain-openai 对齐
+
+# ---------- Prompt 模板 ----------
+jinja2>=3.1.0
+
+# ---------- 对话状态持久化 ----------
+sqlalchemy[asyncio]>=2.0.36
+aiomysql>=0.2.0
+pymysql>=1.1.1                   # 同步兜底 / 本地脚本
+cryptography>=43.0.0             # MySQL 认证插件需要
+
+# ---------- 调用设备维修中台 / RAG ----------
+httpx>=0.28.0
+
+# ---------- YAML 任务流程 ----------
+pyyaml>=6.0.2
+
+# ---------- 日志与可观测（预留）----------
+# structlog>=24.4.0
+# opentelemetry-api>=1.28.0
+# opentelemetry-sdk>=1.28.0
+
+# ---------- 可选：向量/缓存（后期）----------
+# redis>=5.2.0                   # 状态/会话可迁 Redis
+# langgraph>=0.2.0               # 复杂多 Agent / 状态图
+
+# ---------- 开发与测试（可拆 requirements-dev.txt）----------
+# pytest>=8.3.0
+# pytest-asyncio>=0.24.0
+# httpx[http2]                   # TestClient 依赖 httpx
+# ruff>=0.7.0

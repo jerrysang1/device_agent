@@ -1,0 +1,187 @@
+# ============================================================
+# 用户业务流程定义（YAML 流程，改文案不用改代码）
+#
+# 设计约定：
+#   1. 每个 flow 有唯一 id（TaskContext.flow_id 引用它）
+#   2. steps 顺序推进，每步有唯一 id（TaskContext.step_id 记录进度）
+#   3. 槽位（slots）先收集后使用，缺槽时由系统流程追问
+#   4. 写操作必须 need_confirm: true，用户确认后才调中台
+#   5. action 名与中台工具注册表（GET /tools）保持一致
+# ============================================================
+
+# 跨流程共享的全局槽位（语义说明，方便各 flow 引用同一字段）
+slots:
+  device_id:
+    type: string
+    pattern: "DEV-\\d{4}-\\d{4}"
+    desc: "设备编号，如 DEV-2026-0001"
+  ticket_id:
+    type: string
+    pattern: "TKT-\\d{4}-\\d{6}"
+    desc: "工单号，如 TKT-2026-000001"
+  problem_type:
+    type: enum
+    values: [controller_connection, hardware_failure, config_issue, other]
+    desc: "故障类型"
+  problem_desc:
+    type: string
+    desc: "故障现象描述"
+
+flows:
+
+  # --------------------------------------------------------
+  # 1. 保修查询：拿设备编号 → 调中台 → 回保修状态
+  # --------------------------------------------------------
+  check_warranty:
+    name: "保修查询"
+    desc: "查询指定设备是否在保修期内"
+    entry: "ask_device_id"
+    slots: [device_id]
+    steps:
+      - id: ask_device_id
+        type: ask_slot
+        slot: device_id
+        ask: "请提供要查询的设备编号（如 DEV-2026-0001）。"
+        next: query_warranty
+
+      - id: query_warranty
+        type: call_tool
+        action: check_warranty
+        permission: read
+        params:
+          device_id: "${slots.device_id}"
+        # 读操作无需确认，直接调
+        need_confirm: false
+        next: reply_warranty
+
+      - id: reply_warranty
+        type: reply
+        say: "设备 ${slots.device_id} 的保修状态：${tool.warranty_status}，有效期至 ${tool.warranty_deadline}。"
+        suggestions: ["查维修进度", "帮我报修", "转人工"]
+        next: end
+
+  # --------------------------------------------------------
+  # 2. 工单创建（多轮 + 强制确认）
+  #    安全规则：写操作必须用户确认后才提交
+  # --------------------------------------------------------
+  create_service_ticket:
+    name: "报修创建工单"
+    desc: "收集设备与故障信息，用户确认后创建维修工单"
+    entry: "ask_device_id"
+    slots: [device_id, problem_type, problem_desc]
+    steps:
+      - id: ask_device_id
+        type: ask_slot
+        slot: device_id
+        ask: "请提供需要报修的设备编号。"
+        next: ask_problem_type
+
+      - id: ask_problem_type
+        type: ask_slot
+        slot: problem_type
+        ask: "请选择故障类型。"
+        options:
+          - { value: controller_connection, label: "连不上无线控制器" }
+          - { value: hardware_failure, label: "硬件故障" }
+          - { value: config_issue, label: "配置问题" }
+          - { value: other, label: "其他" }
+        next: ask_problem_desc
+
+      - id: ask_problem_desc
+        type: ask_slot
+        slot: problem_desc
+        ask: "请描述故障现象，以及已经尝试过哪些操作？"
+        next: confirm_create
+
+      - id: confirm_create
+        type: confirm
+        ask: "将为设备 ${slots.device_id} 创建工单（${slots.problem_type}）。确认吗？"
+        # 写操作：用户说「确认」后才进入下一步
+        need_confirm: true
+        next: create_ticket
+
+      - id: create_ticket
+        type: call_tool
+        action: create_service_ticket
+        permission: write_confirm
+        params:
+          device_id: "${slots.device_id}"
+          problem_type: "${slots.problem_type}"
+          problem_desc: "${slots.problem_desc}"
+          confirmed: true
+        next: reply_created
+
+      - id: reply_created
+        type: reply
+        say: "工单已创建，工单号：${tool.ticket_id}。可随时说「查进度」了解维修状态。"
+        suggestions: ["查维修进度", "转人工"]
+        next: end
+
+  # --------------------------------------------------------
+  # 3. 进度查询：工单号 → 维修状态 / 物流
+  # --------------------------------------------------------
+  get_repair_progress:
+    name: "维修进度查询"
+    desc: "查询工单的维修与寄送进度"
+    entry: "ask_ticket_id"
+    slots: [ticket_id]
+    steps:
+      - id: ask_ticket_id
+        type: ask_slot
+        slot: ticket_id
+        ask: "请提供工单号（如 TKT-2026-000001）。"
+        next: query_progress
+
+      - id: query_progress
+        type: call_tool
+        action: get_repair_progress
+        permission: read
+        params:
+          ticket_id: "${slots.ticket_id}"
+        need_confirm: false
+        next: reply_progress
+
+      - id: reply_progress
+        type: reply
+        say: "工单 ${slots.ticket_id} 当前状态：${tool.status_desc}。${tool.logistics_tip}"
+        suggestions: ["转人工"]
+        next: end
+
+  # --------------------------------------------------------
+  # 4. 转人工：写操作，同样需要确认
+  # --------------------------------------------------------
+  transfer_to_human:
+    name: "转人工"
+    desc: "将当前会话转交人工客服"
+    entry: "confirm_transfer"
+    slots: []
+    steps:
+      - id: confirm_transfer
+        type: confirm
+        ask: "确定要转接人工客服吗？"
+        need_confirm: true
+        next: do_transfer
+
+      - id: do_transfer
+        type: call_tool
+        action: transfer_to_human
+        permission: write_confirm
+        params:
+          reason: "user_request"
+          confirmed: true
+        next: reply_transferred
+
+      - id: reply_transferred
+        type: reply
+        say: "已为您转接人工客服，请稍候。"
+        next: end
+
+# ============================================================
+# 流程级约定（引擎实现时遵循）
+# ============================================================
+# 1. ask_slot  未填槽 → 触发系统流程 system_collect_information
+# 2. confirm   用户说「确认」→ 进入 next；说「取消」→ 进入 system_task_canceled
+# 3. call_tool 失败重试上限 2 次，仍失败 → system_cannot_handle（可转人工）
+# 4. 用户中途插话 → 当前 TaskContext 进 paused_tasks，跑完新意图再恢复
+# 5. 所有 write_confirm 工具，confirmed 必须为 true，否则中台 400
+# ============================================================

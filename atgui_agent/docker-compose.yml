@@ -1,0 +1,50 @@
+services:
+  # 1. 数据库
+  mysql:
+    image: mysql:8.4
+    container_name: device-service-mysql
+    restart: always
+    ports:
+      - "3306:3306"
+    environment:
+      # 演示环境占位密码；生产请改用密钥管理，并同步修改 .env
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-device123456}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-device_service}
+      MYSQL_USER: ${MYSQL_USER:-device}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-Device.123}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+      # SQL 初始化脚本在仓库根目录 mysql/initdb
+      - ../mysql/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-device123456}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # 2. 设备维修中台（构建上下文为仓库根目录下的 device-service-backend）
+  app:
+    build:
+      context: ../device-service-backend
+      dockerfile: Dockerfile
+    container_name: device-service-app
+    restart: always
+    ports:
+      - "18082:18082"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "mysql+pymysql://${MYSQL_USER:-device}:${MYSQL_PASSWORD:-Device.123}@mysql:3306/${MYSQL_DATABASE:-device_service}?charset=utf8mb4"
+      APP_PORT: 18082
+      # 手册 RAG（宿主机 8001）；不可用时中台应降级为 stub 并显式标记
+      RAG_BASE_URL: ${RAG_BASE_URL:-http://host.docker.internal:8001}
+      RAG_TIMEOUT_SECONDS: "30"
+      # 开发/演示模式：仅本机可访问的假设由端口映射控制，勿公网暴露
+      DEV_MODE: "true"
+
+volumes:
+  mysql_data:

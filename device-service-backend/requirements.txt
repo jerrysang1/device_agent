@@ -1,0 +1,14 @@
+# ============================================================
+# 设备维修中台 device-service-backend 依赖（与 pyproject.toml 对齐）
+# 一般用 uv sync 即可；无 uv 时：pip install -r requirements.txt
+# Python：3.11+
+# ============================================================
+
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+sqlalchemy>=2.0.38
+pymysql>=1.1.1
+cryptography>=43.0.0
+httpx>=0.28.0                   # 代理 shopkeeper_brain /query
+pydantic>=2.9.0
+python-dotenv>=1.0.0

@@ -1,0 +1,8 @@
+# 此文件已迁移，请查看仓库根启动说明（唯一权威入口）：
+#   F:\AAA求职相关\device_agent\启动说明.txt
+#
+# 注意：中台代码在 F:\AAA求职相关\device_agent\device-service-backend
+#      （不在 atgui_agent 目录下）。
+
+Set-Location 'F:\AAA求职相关\device_agent'
+Get-Content .\启动说明.txt

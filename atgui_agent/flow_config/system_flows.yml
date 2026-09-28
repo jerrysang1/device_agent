@@ -1,0 +1,139 @@
+# ============================================================
+# 系统流程定义（引擎主动发起的追问 / 状态反馈）
+#
+# 为什么要与 user_flows 分开：
+#   1. 系统流程优先级高于业务任务——刚问完「设备编号是？」，
+#      必须先听回答，不能被新意图吞掉。
+#   2. 每个系统流程对应 SystemContext 的一个子类（type 字段），
+#      从数据库还原时按 type 分发到具体类型。
+#
+# 对应 domain/contexts.py 中的 type_name：
+#   collect / started / resumed / interrupted / canceled / cannot_handle / completed
+# ============================================================
+
+system_flows:
+
+  # --------------------------------------------------------
+  # 1. 收集槽位：业务流程 ask_slot 缺槽时触发
+  #    对应 CollectSystemContext
+  # --------------------------------------------------------
+  system_collect_information:
+    type: collect
+    name: "信息收集"
+    desc: "业务流程缺少必填槽位时，向用户追问"
+    entry: "ask_missing_slot"
+    steps:
+      - id: ask_missing_slot
+        type: ask_slot
+        # slot_name 由运行时从当前 TaskContext 注入
+        ask: "${slot_prompt}"
+        options: "${slot_options}"
+        next: end
+    # 追问完成后：若用户已填 → 回到原 TaskContext 的 ask_slot 下一步
+    #            若用户插话 → 原任务进 paused_tasks
+
+  # --------------------------------------------------------
+  # 2. 任务开始：用户开启新业务流程
+  #    对应 StartedSystemContext
+  # --------------------------------------------------------
+  system_task_started:
+    type: started
+    name: "任务开始"
+    desc: "用户开启一个新业务流程时的状态反馈"
+    entry: "notify_started"
+    steps:
+      - id: notify_started
+        type: reply
+        say: "好的，开始为您处理「${started_flow_name}」。"
+        next: end
+
+  # --------------------------------------------------------
+  # 3. 任务恢复：从 paused_tasks 弹出并继续
+  #    对应 ResumedSystemContext
+  # --------------------------------------------------------
+  system_task_resumed:
+    type: resumed
+    name: "任务恢复"
+    desc: "插问处理完毕后，回到此前暂停的任务"
+    entry: "notify_resumed"
+    steps:
+      - id: notify_resumed
+        type: reply
+        say: "我们继续刚才的「${resumed_flow_name}」。"
+        next: end
+
+  # --------------------------------------------------------
+  # 4. 任务打断：用户中途发起新意图
+  #    对应 InterruptedSystemContext
+  #    此时把原 TaskContext 压入 paused_tasks
+  # --------------------------------------------------------
+  system_task_interrupted:
+    type: interrupted
+    name: "任务打断"
+    desc: "当前任务被新意图打断，原任务暂存"
+    entry: "notify_interrupted"
+    steps:
+      - id: notify_interrupted
+        type: reply
+        say: "先处理您的新问题，稍后我们回到「${interrupted_flow_name}」。"
+        next: end
+
+  # --------------------------------------------------------
+  # 5. 任务取消：用户主动放弃
+  #    对应 CanceledSystemContext
+  # --------------------------------------------------------
+  system_task_canceled:
+    type: canceled
+    name: "任务取消"
+    desc: "用户主动取消当前业务流程"
+    entry: "notify_canceled"
+    steps:
+      - id: notify_canceled
+        type: reply
+        say: "已取消「${canceled_flow_name}」。还有其他可以帮您的吗？"
+        suggestions: ["保修查询", "帮我报修", "转人工"]
+        next: end
+
+  # --------------------------------------------------------
+  # 6. 无法处理：工具连续失败 / 意图不明 / 越权
+  #    对应 CannotHandleSystemContext
+  #    引擎应给出降级话术，必要时引导转人工
+  # --------------------------------------------------------
+  system_cannot_handle:
+    type: cannot_handle
+    name: "无法处理"
+    desc: "引擎无法完成本轮输入，给出兜底话术"
+    entry: "notify_cannot_handle"
+    steps:
+      - id: notify_cannot_handle
+        type: reply
+        say: "抱歉，这个问题我暂时处理不了（${reason}）。您可以换个说法，或转人工客服。"
+        suggestions: ["转人工"]
+        next: end
+
+  # --------------------------------------------------------
+  # 7. 任务完成：业务流程正常结束
+  #    对应 CompletedSystemContext
+  # --------------------------------------------------------
+  system_completed:
+    type: completed
+    name: "任务完成"
+    desc: "业务流程正常结束时的收尾提示"
+    entry: "notify_completed"
+    steps:
+      - id: notify_completed
+        type: reply
+        say: "「${previous_flow_name}」已处理完毕。还有其他可以帮您的吗？"
+        suggestions: ["保修查询", "帮我报修", "查进度"]
+        next: end
+
+# ============================================================
+# 系统流程执行约定
+# ============================================================
+# 1. 优先级：current_context 有值时，用户回复先喂给系统流程，不进 TurnPlanner
+# 2. collect 完成或中断后，必须显式清空 current_context，避免吞掉后续意图
+# 3. interrupted / resumed 成对出现：压栈 paused_tasks 时记 interrupted，
+#    弹栈恢复时记 resumed
+# 4. cannot_handle 的 reason 来自引擎日志，只给用户可读摘要，不暴露堆栈
+# 5. 所有 say 模板里的 ${...} 由运行时注入，缺省时显示「—」而不是报错
+# ============================================================
